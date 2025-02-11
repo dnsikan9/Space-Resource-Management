@@ -7,3 +7,5 @@ S
 #tests/asteroid-tokenization.test.ts,b/6/b6bb7d2bfcf480344849632174c37a034d6841bb
 P
  contracts/resource-tracking.clar,c/3/c35b5df7934ecc70345f9d5efca4a2ef85651d61
+O
+tests/resource-tracking.test.ts,8/4/84d1d78c5909c6fff3e8cf07ae55857c61708b2a
