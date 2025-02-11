@@ -1,71 +1,64 @@
-;; Mining Rights Contract
+;; Asteroid Tokenization Contract
+
+;; Define the fungible token
+(define-fungible-token asteroid-token)
 
 ;; Define data structures
-(define-map mining-claims
-  { asteroid-id: uint, claim-id: uint }
-  { owner: principal, start-time: uint, end-time: uint, status: (string-utf8 20) }
+(define-map asteroids
+  { asteroid-id: uint }
+  { name: (string-utf8 64), size: uint, composition: (string-utf8 256), owner: principal }
 )
 
-(define-map asteroid-claim-count
-  { asteroid-id: uint }
-  { count: uint }
-)
+(define-data-var last-asteroid-id uint u0)
 
 ;; Error codes
 (define-constant err-unauthorized (err u100))
-(define-constant err-invalid-claim (err u101))
-(define-constant err-claim-exists (err u102))
+(define-constant err-invalid-asteroid (err u101))
+(define-constant err-insufficient-tokens (err u102))
 
 ;; Define the contract owner
 (define-data-var contract-owner principal tx-sender)
 
-;; Stake tokens to create a mining claim
-(define-public (create-claim (asteroid-id uint) (duration uint))
+;; Mint new asteroid tokens
+(define-public (mint-tokens (amount uint) (recipient principal))
+  (begin
+    (asserts! (is-eq tx-sender (var-get contract-owner)) err-unauthorized)
+    (ft-mint? asteroid-token amount recipient)
+  )
+)
+
+;; Register a new asteroid
+(define-public (register-asteroid (name (string-utf8 64)) (size uint) (composition (string-utf8 256)))
   (let
-    ((claim-count (default-to { count: u0 } (map-get? asteroid-claim-count { asteroid-id: asteroid-id })))
-     (new-claim-id (+ (get count claim-count) u1))
-     (start-time block-height)
-     (end-time (+ block-height duration)))
-    (asserts! (is-none (map-get? mining-claims { asteroid-id: asteroid-id, claim-id: new-claim-id })) err-claim-exists)
-    (try! (contract-call? .asteroid-tokenization transfer-asteroid asteroid-id (as-contract tx-sender)))
-    (map-set mining-claims
-      { asteroid-id: asteroid-id, claim-id: new-claim-id }
-      { owner: tx-sender, start-time: start-time, end-time: end-time, status: "active" }
+    ((new-asteroid-id (+ (var-get last-asteroid-id) u1)))
+    (map-set asteroids
+      { asteroid-id: new-asteroid-id }
+      { name: name, size: size, composition: composition, owner: tx-sender }
     )
-    (map-set asteroid-claim-count
+    (var-set last-asteroid-id new-asteroid-id)
+    (ok new-asteroid-id)
+  )
+)
+
+;; Transfer asteroid ownership
+(define-public (transfer-asteroid (asteroid-id uint) (new-owner principal))
+  (let
+    ((asteroid (unwrap! (map-get? asteroids { asteroid-id: asteroid-id }) err-invalid-asteroid)))
+    (asserts! (is-eq tx-sender (get owner asteroid)) err-unauthorized)
+    (ok (map-set asteroids
       { asteroid-id: asteroid-id }
-      { count: new-claim-id }
-    )
-    (ok new-claim-id)
+      (merge asteroid { owner: new-owner })))
   )
 )
 
-;; Transfer a mining claim
-(define-public (transfer-claim (asteroid-id uint) (claim-id uint) (new-owner principal))
-  (let
-    ((claim (unwrap! (map-get? mining-claims { asteroid-id: asteroid-id, claim-id: claim-id }) err-invalid-claim)))
-    (asserts! (is-eq tx-sender (get owner claim)) err-unauthorized)
-    (ok (map-set mining-claims
-      { asteroid-id: asteroid-id, claim-id: claim-id }
-      (merge claim { owner: new-owner })))
-  )
+;; Get asteroid details
+(define-read-only (get-asteroid (asteroid-id uint))
+  (map-get? asteroids { asteroid-id: asteroid-id })
 )
 
-;; End a mining claim
-(define-public (end-claim (asteroid-id uint) (claim-id uint))
-  (let
-    ((claim (unwrap! (map-get? mining-claims { asteroid-id: asteroid-id, claim-id: claim-id }) err-invalid-claim)))
-    (asserts! (or (is-eq tx-sender (get owner claim)) (is-eq tx-sender (var-get contract-owner))) err-unauthorized)
-    (try! (as-contract (contract-call? .asteroid-tokenization transfer-asteroid asteroid-id (get owner claim))))
-    (ok (map-set mining-claims
-      { asteroid-id: asteroid-id, claim-id: claim-id }
-      (merge claim { status: "ended" })))
-  )
-)
-
-;; Get claim details
-(define-read-only (get-claim (asteroid-id uint) (claim-id uint))
-  (map-get? mining-claims { asteroid-id: asteroid-id, claim-id: claim-id })
+;; Get token balance
+(define-read-only (get-balance (account principal))
+  (ft-get-balance asteroid-token account)
 )
 
 ;; Change contract owner
